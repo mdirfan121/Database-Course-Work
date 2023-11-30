@@ -1,0 +1,197 @@
+Use AssignmentPart1 
+GO
+
+DROP SCHEMA IF EXISTS MumsNetAssignment
+GO
+
+CREATE SCHEMA MumsNetAssignment AUTHORIZATION dbo
+GO
+
+-- Delete tables if they exist here:
+
+-- Delete tables if they exist here:
+-- Note: The order of dropping tables is important due to foreign key constraints.
+-- You need to drop in reverse order of creation.
+DROP TABLE IF EXISTS MumsNetAssignment.OrderItem;
+DROP TABLE IF EXISTS MumsNetAssignment.ProductVariant;
+DROP TABLE IF EXISTS MumsNetAssignment.ProductGroup;
+DROP TABLE IF EXISTS MumsNetAssignment.Product;
+DROP TABLE IF EXISTS MumsNetAssignment.OrderGroup;
+DROP TABLE IF EXISTS MumsNetAssignment.Customer;
+DROP TABLE IF EXISTS MumsNetAssignment.City;
+DROP TABLE IF EXISTS MumsNetAssignment.Country;
+
+
+-- Create tables
+CREATE TABLE MumsNetAssignment.Country(
+    CountryID           BIGINT          IDENTITY(1,1),
+	Country		        NVARCHAR(255)		NOT NULL,
+	Region		        NVARCHAR(255),
+	CONSTRAINT pk_CountryID PRIMARY KEY (CountryID))
+GO
+CREATE TABLE MumsNetAssignment.City(
+	CityId              BIGINT              IDENTITY(1,1),
+	City		        NVARCHAR(255)		NOT NULL,
+	County		        NVARCHAR(255)		NOT NULL,
+	CountryID           BIGINT				NOT NULL,
+    CONSTRAINT pk_cityId PRIMARY KEY (CityId),
+	CONSTRAINT fk_CountryID FOREIGN KEY (CountryID) REFERENCES MumsNetAssignment.Country(CountryID)
+)
+GO
+
+CREATE TABLE MumsNetAssignment.Customer(
+	CustomerId          BIGINT              NOT NULL,
+	FirstName           NVARCHAR(255),
+	LastName            NVARCHAR(255),
+	Gender              NVARCHAR(255),
+	DateRegistered      DATETIME            NOT NULL,
+	CityId		        BIGINT              NOT NULL,
+    CONSTRAINT pk_customerId PRIMARY KEY (CustomerId),
+    CONSTRAINT fk_cityId FOREIGN KEY (CityId) REFERENCES MumsNetAssignment.City(CityId)
+)
+GO
+
+CREATE TABLE MumsNetAssignment.OrderGroup(
+	OrderId				BIGINT				IDENTITY(1,1),
+    OrderNumber			NVARCHAR(50)		NOT NULL,
+    OrderCreateDate     DATETIME            NOT NULL,
+    OrderStatusCode     INT                 NOT NULL CHECK (OrderStatusCode >= 0 AND OrderStatusCode <= 4),
+    CustomerId			BIGINT				NOT NULL,
+    BillingCurrency     NVARCHAR(8)         NOT NULL,
+    TotalLineItems      INT                 NOT NULL CHECK (TotalLineItems >= 0),
+    SavedTotal          MONEY               NOT NULL CHECK (SavedTotal >= 0),
+    CONSTRAINT pk_orderid PRIMARY KEY (OrderId),
+    CONSTRAINT fk_CustomerID FOREIGN KEY (CustomerId) REFERENCES MumsNetAssignment.Customer(CustomerId)
+)
+GO
+
+CREATE TABLE MumsNetAssignment.Product(
+	ProductCode		NVARCHAR(50)		NOT NULL,
+	Name			NVARCHAR(256)		NOT NULL,
+	Features		NVARCHAR(3600),
+	Description		NVARCHAR(3600),
+	CONSTRAINT pk_productcode PRIMARY KEY (ProductCode)
+)
+GO
+
+CREATE TABLE MumsNetAssignment.ProductGroup(
+	ProductCode		NVARCHAR(50)		NOT NULL,
+	ProductGroup	NVARCHAR(128)		NOT NULL,
+	CONSTRAINT pk_productcodeandgroup PRIMARY KEY (ProductCode, ProductGroup),
+	CONSTRAINT fk_productcode FOREIGN KEY (ProductCode) REFERENCES MumsNetAssignment.Product(ProductCode)
+)
+GO
+
+CREATE TABLE MumsNetAssignment.ProductVariant(
+    VariantCode         NVARCHAR(50),
+    ProductCode         NVARCHAR(50),
+    Price               MONEY NOT NULL CHECK (Price >= 0),
+    Cup                 NVARCHAR(256),
+    Size                NVARCHAR(256),
+    LegLength           NVARCHAR(256),
+    Colour              NVARCHAR(256),
+    CONSTRAINT pk_variantcode PRIMARY KEY (VariantCode),
+    CONSTRAINT fk_productvariantcode FOREIGN KEY(ProductCode) REFERENCES MumsNetAssignment.Product(ProductCode)
+)
+GO
+
+CREATE TABLE MumsNetAssignment.OrderItem(	
+	OrderItemNumber		NVARCHAR(32)	    NOT NULL,
+	OrderId				BIGINT			NOT NULL,
+	VariantCode			NVARCHAR(50),
+	Quantity			INT,
+    CONSTRAINT pk_orderitemnumber PRIMARY KEY (OrderItemNumber),
+	CONSTRAINT fk_orderid FOREIGN KEY (OrderId) REFERENCES MumsNetAssignment.OrderGroup(OrderId),
+	CONSTRAINT fk_variantcode FOREIGN KEY (VariantCode) REFERENCES MumsNetAssignment.ProductVariant(VariantCode)
+)
+GO
+
+
+-- Migrate data from the original database into the normalised one
+
+INSERT INTO MumsNetAssignment.Country (Country, Region)
+SELECT DISTINCT Country, Region FROM CustomerCity;
+GO
+
+INSERT INTO MumsNetAssignment.City (City, County, CountryID)
+SELECT DISTINCT 
+    cc.City, cc.County, co.CountryID
+FROM CustomerCity cc
+JOIN MumsNetAssignment.Country co ON cc.Country = co.Country;
+GO
+
+
+INSERT INTO MumsNetAssignment.Customer (CustomerId, FirstName, LastName, Gender, DateRegistered, CityId)
+SELECT Id, FirstName, LastName, Gender, DateRegistered, 
+    (SELECT TOP 1 CityId FROM MumsNetAssignment.City WHERE City.County = cc.County)
+FROM CustomerCity cc;
+GO
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+INSERT INTO MumsNetAssignment.Product (ProductCode, Name, Features, Description)
+SELECT DISTINCT
+    p.ProductCode, p.Name, p.Features, p.Description
+FROM Product p
+LEFT JOIN MumsNetAssignment.Product mp ON p.ProductCode = mp.ProductCode
+WHERE mp.ProductCode IS NULL;
+GO
+
+
+
+
+INSERT INTO MumsNetAssignment.ProductGroup (ProductCode, ProductGroup)
+SELECT DISTINCT ProductCode, ProductGroup
+FROM Product;
+GO
+INSERT INTO MumsNetAssignment.ProductVariant (VariantCode, ProductCode, Price, Cup, Size, LegLength, Colour)
+SELECT DISTINCT VariantCode, ProductCode, Price, Cup, Size, LegLength, Colour
+FROM Product; -- Replace 'Product' with the correct source table if necessary
+GO
+-- Migrate OrderGroup
+INSERT INTO MumsNetAssignment.OrderGroup (OrderNumber, OrderCreateDate, OrderStatusCode, CustomerId, BillingCurrency, TotalLineItems, SavedTotal)
+SELECT DISTINCT OrderItem.OrderNumber, OrderCreateDate, OrderStatusCode, CustomerCityId, BillingCurrency, 0, 0
+FROM dbo.OrderItem;
+Go
+
+
+-- Migrate OrderItem
+INSERT INTO MumsNetAssignment.OrderItem (OrderItemNumber, OrderId, VariantCode, Quantity)
+SELECT oi.OrderItemNumber,  og.OrderId, oi.VariantCode, oi.Quantity
+FROM OrderItem oi
+JOIN MumsNetAssignment.OrderGroup og ON oi.OrderNumber = og.OrderNumber;
+GO
+UPDATE MumsNetAssignment.OrderGroup
+SET MumsNetAssignment.OrderGroup.TotalLineItems = (
+    SELECT SUM(Quantity)
+    FROM OrderItem
+    WHERE OrderItem.OrderNumber = MumsNetAssignment.OrderGroup.OrderNumber
+)
+WHERE OrderGroup.OrderNumber IS NOT NULL;
+GO
+
+UPDATE MumsNetAssignment.OrderGroup
+SET SavedTotal = (
+    SELECT SUM(LineItemTotal)
+    FROM OrderItem
+    WHERE OrderItem.OrderNumber = MumsNetAssignment.OrderGroup.OrderNumber
+)
+WHERE OrderGroup.OrderNumber IS NOT NULL;
+GO
+
+
+
+
+

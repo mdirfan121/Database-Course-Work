@@ -1,0 +1,290 @@
+Use AssignmentPart1 
+GO
+
+DROP SCHEMA IF EXISTS MumsNetSaleData
+GO
+
+CREATE SCHEMA MumsNetSaleData AUTHORIZATION dbo
+GO
+
+-- Delete tables if they exist here:
+
+-- Delete tables if they exist here:
+-- Note: The order of dropping tables is important due to foreign key constraints.
+-- You need to drop in reverse order of creation.
+DROP TABLE IF EXISTS MumsNetSaleData.FactSales;
+DROP TABLE IF EXISTS MumsNetSaleData.DimDate;
+DROP TABLE IF EXISTS MumsNetSaleData.OrderItem;
+DROP TABLE IF EXISTS MumsNetSaleData.ProductVariant;
+DROP TABLE IF EXISTS MumsNetSaleData.ProductGroup;
+DROP TABLE IF EXISTS MumsNetSaleData.Product;
+DROP TABLE IF EXISTS MumsNetSaleData.OrderGroup;
+DROP TABLE IF EXISTS MumsNetSaleData.Customer;
+DROP TABLE IF EXISTS MumsNetSaleData.City;
+DROP TABLE IF EXISTS MumsNetSaleData.Country;
+
+
+
+-- Create tables
+CREATE TABLE MumsNetSaleData.Country (
+    CountryId    BIGINT          IDENTITY(1,1)   ,
+    CountryName  NVARCHAR(200)   NOT NULL,
+    CONSTRAINT pk_country PRIMARY KEY (CountryId)
+)
+GO
+CREATE TABLE MumsNetSaleData.City (
+    CityId       BIGINT         IDENTITY(1,1),
+    CityName     NVARCHAR(200)   NOT NULL,
+    County       NVARCHAR(200)   NOT NULL,
+    Region       NVARCHAR(200)   NOT NULL,
+    CountryId    BIGINT             NOT NULL,
+    CONSTRAINT pk_city PRIMARY KEY (CityId),
+    CONSTRAINT fk_city_country FOREIGN KEY (CountryId) REFERENCES MumsNetSaleData.Country(CountryId)
+)
+GO
+
+CREATE TABLE MumsNetSaleData.Customer (
+    CustomerId     BIGINT             NOT NULL,
+    FirstName      NVARCHAR(200)   NOT NULL,
+    LastName       NVARCHAR(200)   NOT NULL,
+    Gender         NVARCHAR(200)         NOT NULL CHECK (Gender IN ('M', 'F')),
+    DateRegistered DATETIME        NOT NULL,
+    CityId         BIGINT             NOT NULL,
+    CONSTRAINT pk_customer PRIMARY KEY (CustomerId),
+    CONSTRAINT fk_city FOREIGN KEY (CityId) REFERENCES MumsNetSaleData.City(CityId)
+)
+GO
+
+CREATE TABLE MumsNetSaleData.OrderGroup(
+	OrderId				BIGINT				IDENTITY(1,1),
+    OrderNumber			NVARCHAR(50)		NOT NULL,
+    OrderCreateDate     DATETIME            NOT NULL,
+    OrderStatusCode     INT                 NOT NULL CHECK (OrderStatusCode >= 0 AND OrderStatusCode <= 4),
+    CustomerId			BIGINT				NOT NULL,
+    BillingCurrency     NVARCHAR(8)         NOT NULL,
+    TotalLineItems      INT                 NOT NULL CHECK (TotalLineItems >= 0),
+    SavedTotal          MONEY               NOT NULL CHECK (SavedTotal >= 0),
+    CONSTRAINT pk_orderid PRIMARY KEY (OrderId),
+    CONSTRAINT fk_CustomerID FOREIGN KEY (CustomerId) REFERENCES MumsNetSaleData.Customer(CustomerId)
+)
+GO
+
+CREATE TABLE MumsNetSaleData.Product(
+	ProductCode		NVARCHAR(50)		NOT NULL,
+	Name			NVARCHAR(256)		NOT NULL,
+	Features		NVARCHAR(3600),
+	Description		NVARCHAR(3600),
+	CONSTRAINT pk_productcode PRIMARY KEY (ProductCode)
+)
+GO
+
+CREATE TABLE MumsNetSaleData.ProductGroup(
+	ProductCode		NVARCHAR(50)		NOT NULL,
+	ProductGroup	NVARCHAR(128)		NOT NULL,
+	CONSTRAINT pk_productcodeandgroup PRIMARY KEY (ProductCode, ProductGroup),
+	CONSTRAINT fk_productcode FOREIGN KEY (ProductCode) REFERENCES MumsNetSaleData.Product(ProductCode)
+)
+GO
+
+CREATE TABLE MumsNetSaleData.ProductVariant(
+    VariantCode         NVARCHAR(50),
+    ProductCode         NVARCHAR(50),
+    Price               MONEY NOT NULL CHECK (Price >= 0),
+    Cup                 NVARCHAR(256),
+    Size                NVARCHAR(256),
+    LegLength           NVARCHAR(256),
+    Colour              NVARCHAR(256),
+    CONSTRAINT pk_variantcode PRIMARY KEY (VariantCode),
+    CONSTRAINT fk_productvariantcode FOREIGN KEY(ProductCode) REFERENCES MumsNetSaleData.Product(ProductCode)
+)
+GO
+
+CREATE TABLE MumsNetSaleData.OrderItem(	
+	OrderItemNumber		NVARCHAR(32)	    NOT NULL,
+	OrderId				BIGINT			NOT NULL,
+	VariantCode			NVARCHAR(50),
+	Quantity			INT,
+    CONSTRAINT pk_orderitemnumber PRIMARY KEY (OrderItemNumber),
+	CONSTRAINT fk_orderid FOREIGN KEY (OrderId) REFERENCES MumsNetSaleData.OrderGroup(OrderId),
+	CONSTRAINT fk_variantcode FOREIGN KEY (VariantCode) REFERENCES MumsNetSaleData.ProductVariant(VariantCode)
+)
+GO
+CREATE TABLE MumsNetSaleData.DimDate (
+    DateKey INT PRIMARY KEY,
+    Date DATE,
+    Day INT,
+    Month INT,
+    Year INT,
+    Quarter INT,
+    Weekday VARCHAR(10)
+);
+CREATE TABLE MumsNetSaleData.FactSales (
+    FactSalesId       BIGINT IDENTITY(1,1) NOT NULL,
+    OrderItemId       NVARCHAR(32) NOT NULL,
+    OrderId           BIGINT NOT NULL,
+    VariantCode       NVARCHAR(50) NOT NULL,
+    ProductCode       NVARCHAR(50) NOT NULL,
+    CustomerId        BIGINT NOT NULL,
+	DateKey			  INT    NOT NULL,
+    Quantity          INT NOT NULL,
+    Price             MONEY NOT NULL,
+    TotalPrice        AS (Quantity * Price),
+    CONSTRAINT pk_FactSales PRIMARY KEY (FactSalesId),
+    CONSTRAINT fk_FactSales_OrderItem FOREIGN KEY (OrderItemId) REFERENCES MumsNetSaleData.OrderItem(OrderItemNumber),
+    CONSTRAINT fk_FactSales_OrderGroup FOREIGN KEY (OrderId) REFERENCES MumsNetSaleData.OrderGroup(OrderId),
+    CONSTRAINT fk_FactSales_ProductVariant FOREIGN KEY (VariantCode) REFERENCES MumsNetSaleData.ProductVariant(VariantCode),
+    CONSTRAINT fk_FactSales_Product FOREIGN KEY (ProductCode) REFERENCES MumsNetSaleData.Product(ProductCode),
+    CONSTRAINT fk_FactSales_Customer FOREIGN KEY (CustomerId) REFERENCES MumsNetSaleData.Customer(CustomerId),
+	CONSTRAINT fk_FactSales_Date FOREIGN KEY (DateKey) REFERENCES MumsNetSaleData.DimDate(DateKey)
+)
+GO
+
+
+
+
+
+INSERT INTO MumsNetSaleData.Country (CountryName)
+SELECT DISTINCT Country
+FROM AssignmentPart1.dbo.CustomerCity;
+GO
+
+INSERT INTO MumsNetSaleData.City (CityName, County, Region, CountryId)
+SELECT DISTINCT CC.City, CC.County, CC.Region, C.CountryId
+FROM AssignmentPart1.dbo.CustomerCity CC
+JOIN MumsNetSaleData.Country C ON CC.Country = C.CountryName
+GO
+
+
+INSERT INTO MumsNetSaleData.Customer (CustomerId, FirstName, LastName, Gender, DateRegistered, CityId)
+SELECT CC.Id, CC.FirstName, CC.LastName, CC.Gender, CC.DateRegistered, CT.CityId
+FROM AssignmentPart1.dbo.CustomerCity CC
+JOIN MumsNetSaleData.City CT ON CC.City = CT.CityName AND CC.County = CT.County AND CC.Region = CT.Region
+GO
+
+INSERT INTO MumsNetSaleData.Product (ProductCode, Name, Features, Description)
+SELECT DISTINCT ProductCode, Name, Features, Description
+FROM Product
+WHERE NOT EXISTS (
+    SELECT 1 FROM MumsNetSaleData.Product WHERE ProductCode = Product.ProductCode
+);
+GO
+
+
+
+INSERT INTO MumsNetSaleData.ProductGroup (ProductCode, ProductGroup)
+SELECT DISTINCT ProductCode, ProductGroup
+FROM Product;
+GO
+INSERT INTO MumsNetSaleData.ProductVariant (VariantCode, ProductCode, Price, Cup, Size, LegLength, Colour)
+SELECT DISTINCT VariantCode, ProductCode, Price, Cup, Size, LegLength, Colour
+FROM Product; -- Replace 'Product' with the correct source table if necessary
+GO
+-- Migrate OrderGroup
+INSERT INTO MumsNetSaleData.OrderGroup (OrderNumber, OrderCreateDate, OrderStatusCode, CustomerId, BillingCurrency, TotalLineItems, SavedTotal)
+SELECT DISTINCT OrderItem.OrderNumber, OrderCreateDate, OrderStatusCode, CustomerCityId, BillingCurrency, 0, 0
+FROM dbo.OrderItem;
+Go
+
+
+-- Migrate OrderItem
+INSERT INTO MumsNetSaleData.OrderItem (OrderItemNumber, OrderId, VariantCode, Quantity)
+SELECT oi.OrderItemNumber, (SELECT OrderId FROM MumsNetSaleData.OrderGroup WHERE OrderNumber = oi.OrderNumber), oi.VariantCode, oi.Quantity
+FROM OrderItem oi;
+Go
+
+
+
+
+
+BACKUP DATABASE AssignmentPart1 TO DISK = 'C:\Users\Public\MumsnetSales\Group-2-D1.bak' WITH INIT, NAME= N'AssignmentPart1'
+--GO
+
+
+
+-- Additional Constraint 
+ALTER TABLE MumsNetSaleData.OrderGroup
+ADD CONSTRAINT CK_OrderNumber_Format CHECK (
+    LEFT(OrderNumber, 3) = 'OR\' AND -- Check the prefix
+    ISNUMERIC(SUBSTRING(OrderNumber, 4, 2)) = 1 AND -- Check day is numeric
+    ISNUMERIC(SUBSTRING(OrderNumber, 6, 2)) = 1 AND -- Check month is numeric
+    ISNUMERIC(SUBSTRING(OrderNumber, 8, 4)) = 1 AND -- Check year is numeric
+    SUBSTRING(OrderNumber, 12, 1) = '\' AND -- Check the separator before NN
+    LEN(OrderNumber) = 14 AND -- Check total length
+    ISNUMERIC(RIGHT(OrderNumber, 2)) = 1 AND -- Check NN is numeric
+    CAST(RIGHT(OrderNumber, 2) AS INT) BETWEEN 1 AND 99 -- Check NN is between 01 and 99
+)
+GO
+
+UPDATE og
+SET og.TotalLineItems = ISNULL(oi.ItemCount, 0) -- Set to 0 if there are no items
+FROM MumsNetSaleData.OrderGroup og
+LEFT JOIN (
+    SELECT OrderId, COUNT(*) AS ItemCount
+    FROM MumsNetSaleData.OrderItem
+    GROUP BY OrderId
+) oi ON og.OrderId = oi.OrderId;
+Go
+
+
+UPDATE og
+SET og.SavedTotal = ISNULL(oi.TotalValue, 0.00) -- Set to 0.00 if there are no items
+FROM MumsNetSaleData.OrderGroup og
+LEFT JOIN (
+    SELECT OrderId, SUM(Price * Quantity) AS TotalValue
+    FROM MumsNetSaleData.OrderItem oi
+    JOIN MumsNetSaleData.ProductVariant pv ON oi.VariantCode = pv.VariantCode
+    GROUP BY OrderId
+) oi ON og.OrderId = oi.OrderId;
+Go
+INSERT INTO MumsNetSaleData.DimDate (DateKey, Date, Day, Month, Year, Quarter, Weekday)
+SELECT DISTINCT 
+    CONVERT(INT, CONVERT(VARCHAR, OrderCreateDate, 112)) AS DateKey,
+    OrderCreateDate,
+    DAY(OrderCreateDate),
+    MONTH(OrderCreateDate),
+    YEAR(OrderCreateDate),
+    DATEPART(QUARTER, OrderCreateDate),
+    DATENAME(WEEKDAY, OrderCreateDate)
+FROM MumsNetSaleData.OrderGroup;
+GO
+
+INSERT INTO MumsNetSaleData.FactSales (
+    OrderItemId,
+    OrderId,
+    VariantCode,
+    ProductCode,
+	DateKey,
+    CustomerId,
+    Quantity,
+    Price)
+SELECT 
+    oi.OrderItemNumber,
+    og.OrderId,
+    oi.VariantCode,
+    pv.ProductCode,
+	Datekey ,
+    og.CustomerId,
+    oi.Quantity,
+    pv.Price
+FROM 
+    MumsNetSaleData.OrderItem oi
+JOIN 
+    MumsNetSaleData.OrderGroup og ON oi.OrderId = og.OrderId
+JOIN 
+    MumsNetSaleData.ProductVariant pv ON oi.VariantCode = pv.VariantCode
+JOIN 
+    MumsNetSaleData.Product p ON pv.ProductCode = p.ProductCode
+JOIN  
+	MumsNetSaleData.DimDate DD ON DD.Date = OG.OrderCreateDate;
+GO
+
+
+
+
+
+
+
+
+SELECT TOP 5 OrderCreateDate, 
+       CONVERT(INT, CONVERT(VARCHAR, OrderCreateDate, 112)) AS ConvertedDate 
+FROM MumsNetSaleData.OrderGroup;

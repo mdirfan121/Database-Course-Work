@@ -1,0 +1,116 @@
+Use AssignmentPart1
+GO
+
+CREATE PROCEDURE prCreateOrderGroup
+    @OrderNumber NVARCHAR(32),
+    @OrderCreateDate DATETIME,
+    @CustomerID INT
+AS
+BEGIN
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        
+        INSERT INTO MumsNetSaleData.OrderGroup (OrderNumber, OrderCreateDate, CustomerId, OrderStatusCode, BillingCurrency, TotalLineItems, SavedTotal)
+        VALUES (@OrderNumber, @OrderCreateDate, @CustomerID, 0, '', 0, 0.00);
+        
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+		DECLARE @ErrorMessage NVARCHAR(4000);
+		SET @ErrorMessage = ERROR_MESSAGE();
+            RAISERROR (@ErrorMessage, 16, 1);
+    END CATCH
+END
+GO
+
+CREATE PROCEDURE prCreateOrderItem
+    @OrderNumber NVARCHAR(32),
+    @OrderItemNumber NVARCHAR(32),
+    @ProductGroup NVARCHAR(128),
+    @ProductCode NVARCHAR(255),
+    @VariantCode NVARCHAR(255),
+    @Quantity INT,
+    @UnitPrice MONEY
+AS
+BEGIN
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        -- Variables for IDs
+        DECLARE @OrderId BIGINT;
+        DECLARE @ProductGroupId BIGINT;
+
+        -- Get OrderId from OrderNumber
+        SELECT @OrderId = OrderId FROM MumsNetSaleData.OrderGroup WHERE OrderNumber = @OrderNumber;
+
+        -- Validate if the order exists
+        IF @OrderId IS NULL
+        BEGIN
+            RAISERROR ('This OrderNumber does not exist.', 16, 1);
+        END
+        ELSE
+        BEGIN
+            -- Validate if the product and variant exist
+            IF NOT EXISTS (SELECT 1 FROM MumsNetSaleData.Product WHERE ProductCode = @ProductCode)
+            BEGIN
+                RAISERROR ('This ProductCode does not exist.', 16, 1);
+            END
+            ELSE IF NOT EXISTS (SELECT 1 FROM MumsNetSaleData.ProductVariant WHERE VariantCode = @VariantCode AND ProductCode = @ProductCode)
+            BEGIN
+                RAISERROR ('VariantCode not found for the given ProductCode.', 16, 1);
+            END
+            ELSE
+            BEGIN
+                -- Insert into OrderItem
+                INSERT INTO MumsNetSaleData.OrderItem (OrderItemNumber, OrderId, VariantCode, Quantity)
+                VALUES (@OrderItemNumber, @OrderId, @VariantCode, @Quantity);
+
+                -- Update UnitPrice in ProductVariant (if needed)
+                UPDATE MumsNetSaleData.ProductVariant
+                SET Price = @UnitPrice
+                WHERE VariantCode = @VariantCode AND ProductCode = @ProductCode;
+
+                
+            END
+        END
+
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        ROLLBACK TRANSACTION;
+		DECLARE @ErrorMessage NVARCHAR(4000);
+		SET @ErrorMessage = ERROR_MESSAGE();
+            RAISERROR (@ErrorMessage, 16, 1);
+      
+    END CATCH
+END
+
+
+CREATE INDEX idx_OrderNumber ON MumsNetSaleData.OrderGroup(OrderNumber);
+--
+-- Index for VariantCode and ProductCode in ProductVariant
+CREATE INDEX idx_VariantCode ON MumsNetSaleData.ProductVariant(VariantCode);
+CREATE INDEX idx_ProductCode ON MumsNetSaleData.ProductVariant(ProductCode);
+
+-- Index for OrderItemNumber in OrderItem
+CREATE INDEX idx_OrderItemNumber ON MumsNetSaleData.OrderItem(OrderItemNumber);
+
+
+EXEC prCreateOrderGroup 
+    @OrderNumber = 'OR\01012022\01', 
+    @OrderCreateDate = '2022-01-01', 
+    @CustomerID = 123;
+
+	EXEC prCreateOrderItem 
+    @OrderNumber = 'OR\01012022\01', 
+    @OrderItemNumber = 'OI\010122\01', 
+    @ProductGroup = 'Clothing', 
+    @ProductCode = 'PC123', 
+    @VariantCode = 'VC123', 
+    @Quantity = 2, 
+    @UnitPrice = 19.99;
+
+	Select*from MumsNetSaleData.OrderItem where OrderNumber='OR\01012022\01'
+
+
